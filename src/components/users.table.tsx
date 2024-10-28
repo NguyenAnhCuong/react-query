@@ -1,5 +1,5 @@
 import Table from "react-bootstrap/Table";
-import { useState, forwardRef } from "react";
+import { useState, forwardRef, useEffect } from "react";
 import Button from "react-bootstrap/Button";
 import UserCreateModal from "./modal/user.create.modal";
 import UserEditModal from "./modal/user.edit.modal";
@@ -7,7 +7,7 @@ import UserDeleteModal from "./modal/user.delete.modal";
 import UsersPagination from "./pagination/users.pagination";
 import OverlayTrigger from "react-bootstrap/OverlayTrigger";
 import Popover from "react-bootstrap/Popover";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 
 interface IUser {
   id: number;
@@ -17,11 +17,13 @@ interface IUser {
 
 function UsersTable() {
   const [isOpenCreateModal, setIsOpenCreateModal] = useState<boolean>(false);
-
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [totalPage, setTotalPage] = useState<number>(1);
   const [isOpenUpdateModal, setIsOpenUpdateModal] = useState<boolean>(false);
   const [dataUser, setDataUser] = useState({});
 
   const [isOpenDeleteModal, setIsOpenDeleteModal] = useState<boolean>(false);
+  const PAGE_SIZE = 4;
 
   //   const users = [
   //     {
@@ -46,9 +48,19 @@ function UsersTable() {
     error,
     data: users,
   } = useQuery({
-    queryKey: ["repoData"],
+    queryKey: ["fetchUser", currentPage],
     queryFn: (): Promise<IUser[]> =>
-      fetch("http://localhost:8000/users").then((res) => res.json()),
+      fetch(
+        `http://localhost:8000/users?_page=${currentPage}&_limit=${PAGE_SIZE}`
+      ).then((res) => {
+        const total_items = +(res.headers?.get("X-Total-Count") ?? 0);
+        const page_size = PAGE_SIZE;
+        const total_pages =
+          total_items === 0 ? 0 : Math.ceil(total_items / page_size);
+        setTotalPage(total_pages);
+        return res.json();
+      }),
+    placeholderData: keepPreviousData,
   });
 
   if (isPending) return "Loading...";
@@ -68,14 +80,37 @@ function UsersTable() {
   const PopoverComponent = forwardRef((props: any, ref: any) => {
     const { id } = props;
 
+    const {
+      isPending,
+      error,
+      data: user,
+    } = useQuery({
+      queryKey: ["fetchOneUser", id],
+      queryFn: (): Promise<IUser> =>
+        fetch(`http://localhost:8000/users/${id}`).then((res) => res.json()),
+    });
+
+    const getBody = () => {
+      if (isPending) {
+        return "Loading detail...";
+      }
+      if (error) return "An error has occurred: " + error.message;
+
+      if (user) {
+        return (
+          <>
+            <div>ID = {id}</div>
+            <div>Name = {user?.name}</div>
+            <div>Email = {user?.email}</div>
+          </>
+        );
+      }
+    };
+
     return (
       <Popover ref={ref} {...props}>
         <Popover.Header as="h3">Detail User</Popover.Header>
-        <Popover.Body>
-          <div>ID = {id}</div>
-          <div>Name = ?</div>
-          <div>Email = ?</div>
-        </Popover.Body>
+        <Popover.Body>{getBody()}</Popover.Body>
       </Popover>
     );
   });
@@ -137,7 +172,11 @@ function UsersTable() {
           })}
         </tbody>
       </Table>
-      <UsersPagination totalPages={0} />
+      <UsersPagination
+        totalPages={totalPage}
+        currentPage={currentPage}
+        setCurrentPage={setCurrentPage}
+      />
       <UserCreateModal
         isOpenCreateModal={isOpenCreateModal}
         setIsOpenCreateModal={setIsOpenCreateModal}
